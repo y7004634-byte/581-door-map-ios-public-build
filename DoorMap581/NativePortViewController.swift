@@ -615,6 +615,12 @@ import UniformTypeIdentifiers
         morePanel.isHidden = true; ridingCamera.setSuspended(true)
         let settings = MapSettingsViewController(nativePreferences)
         settings.stationStatus = stationStatus
+        settings.onClose = { [weak self] in
+            guard let self else { return }
+            self.updateCameraSuspension()
+            self.updateNativeCameraLayout()
+            self.updateDiagnostic()
+        }
         settings.cameraStatus = { [weak self] in
             guard let self else { return "" }
             return String(format: "Apple 實際傾角 %.0f° · %@ · 縮放 %.2f", self.map.camera.pitch, self.ridingCamera.mode.rawValue, NativeCameraAdapter.measuredZoom(self.map))
