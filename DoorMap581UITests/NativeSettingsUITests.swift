@@ -72,12 +72,20 @@ final class NativeSettingsUITests: XCTestCase {
         setSwitch("setting-route-visible", true)
         let avatarReset = app.segmentedControls["avatar-mode"]; XCTAssertTrue(avatarReset.waitForExistence(timeout: 5)); avatarReset.buttons["經典"].tap()
         closeSettings()
-        wait("defaults restored") {
-            self.state()["stationsEnabled"] as? Bool == false &&
-            (self.state()["stationCount"] as? Int ?? -1) == 0 &&
-            self.state()["routeVisible"] as? Bool == true &&
-            self.state()["avatarMode"] as? String == "classic"
+        var restored = false
+        for sample in 0..<8 {
+            let snapshot = state()
+            print("RESTORE_STATE[\(sample)] stationsEnabled=\(String(describing: snapshot["stationsEnabled"])) stationCount=\(String(describing: snapshot["stationCount"])) routeVisible=\(String(describing: snapshot["routeVisible"])) avatarMode=\(String(describing: snapshot["avatarMode"]))")
+            if snapshot["stationsEnabled"] as? Bool == false &&
+                (snapshot["stationCount"] as? Int ?? -1) == 0 &&
+                snapshot["routeVisible"] as? Bool == true &&
+                snapshot["avatarMode"] as? String == "classic" {
+                restored = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 1)
         }
+        XCTAssertTrue(restored, "defaults restored final=\(state())")
     }
 
     func testPowerDiagnosticStartsAndStopsWithoutWebRuntime() {
