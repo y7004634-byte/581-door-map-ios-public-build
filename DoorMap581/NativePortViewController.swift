@@ -63,6 +63,7 @@ import UniformTypeIdentifiers
     private let stationStore = BatteryStationStore()
     private var stationAnnotations: [BatteryStationAnnotation] = []
     private var stationStatus = ""
+    private var settingsDiagnosticSignature = ""
     private let powerDiagnostic = NativePowerDiagnostic()
     private var powerCameraApplications = 0, powerFitEvaluations = 0, powerLayerRefreshes = 0
     private var publicLayers: NativePublicLayerPresenter?
@@ -1402,6 +1403,15 @@ import UniformTypeIdentifiers
         data["sensorInputSimulated"] = nativeSensors.simulated
         data["sensorFixes"] = nativeSensors.acceptedFixes; data["sensorHeadings"] = nativeSensors.acceptedHeadings
         if let mini = destinationMini { data.merge(mini.diagnostics(), uniquingKeysWith: { _, new in new }) }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["DOOR_NATIVE_SETTINGS_DIAG"] == "1" {
+            let signature = "stations=\(nativePreferences.stations)|count=\(stationAnnotations.count)|route=\(nativePreferences.routeVisible)|avatar=\(nativePreferences.avatar.rawValue)"
+            if signature != settingsDiagnosticSignature {
+                settingsDiagnosticSignature = signature
+                print("SETTINGS_STATE \(signature)")
+            }
+        }
+        #endif
         if let bytes = try? JSONSerialization.data(withJSONObject: data, options: .sortedKeys) { diagnostic.accessibilityValue = String(data: bytes, encoding: .utf8) }
     }
     deinit { if let inputObservation { NotificationCenter.default.removeObserver(inputObservation) } }
