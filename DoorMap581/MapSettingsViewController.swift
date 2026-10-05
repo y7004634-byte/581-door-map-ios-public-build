@@ -4,6 +4,7 @@ final class MapSettingsViewController: UITableViewController {
     var preferences: MapPreferences
     var onChange: ((MapPreferences) -> Void)?
     var onAction: ((String) -> Void)?
+    var onClose: (() -> Void)?
     var cameraStatus: (() -> String)?
     var stationStatus = ""
     var hasApplePlace = false
@@ -17,7 +18,14 @@ final class MapSettingsViewController: UITableViewController {
         tableView.accessibilityIdentifier = "map-settings"
         tableView.rowHeight = 52
     }
-    @objc private func close() { dismiss(animated: true) }
+    @objc private func close() {
+        let completion = onClose
+        if let nav = navigationController, nav.presentingViewController != nil {
+            nav.dismiss(animated: true, completion: completion)
+        } else {
+            dismiss(animated: true, completion: completion)
+        }
+    }
     override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); tableView.reloadData() }
     private func emit() { preferences.sanitize(); preferences.save(); onChange?(preferences) }
     override func numberOfSections(in tableView: UITableView) -> Int { 7 }
@@ -33,7 +41,7 @@ final class MapSettingsViewController: UITableViewController {
         case 3: return (cameraStatus?() ?? "") + "\nApple 依倍率限制傾角，實際以畫面為準。手勢角度會保存；定位與全程保留選定傾角。"
         case 4: return "展開後拖動門牌圖，把準星對準位置，再按「定位修正」。收合或關閉不套用未確認的移動。"
         case 5: return stationStatus.isEmpty ? "位置與名稱，不查即時電池量。開啟後沿用原版站點資料；未更新時顯示已保存位置。" : stationStatus
-        case 6: return "581 Apple 測試 · 0.3.0 (7)\nFIT、PiP、多站、避開區與路線編輯已接回現行 3.78 規則。Apple 建物輪廓呈現仍依圖資與 SDK。"
+        case 6: return "581 Apple 測試 · 0.4.0 (9)\nFIT、PiP、多站、避開區與路線編輯已接回現行 3.78 規則。Apple 建物輪廓呈現仍依圖資與 SDK。"
         default: return nil
         }
     }
