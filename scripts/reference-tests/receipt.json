@@ -1,0 +1,22 @@
+{
+  "TEST_V0379_FIT_LOCK.mjs": {
+    "sourceSha256": "30ab5a4def98cae841d042bbff88ebb294e52177b71a4596fedfde15457caf41",
+    "adaptation": "IO root only; original cases and inputs unchanged"
+  },
+  "TEST_V0380_CAMERA_OWNERSHIP.mjs": {
+    "sourceSha256": "ba5aa6144caa6acde128f004f441d089d0aa19d1793ef3c12c1a8a64d4b76106",
+    "adaptation": "IO root only; original cases and inputs unchanged"
+  },
+  "TEST_V0380_PIP_RUNTIME.mjs": {
+    "sourceSha256": "b73864e815baf7cda9aa627446501d128c2597b0192d24e4a008e22a12787c80",
+    "adaptation": "IO root only; original cases and inputs unchanged"
+  },
+  "TEST_V0381_MANUAL_ZOOM.mjs": {
+    "sourceSha256": "d22082e72462441cb74c4af73eed23a62a4d16e75e084a89d22dd5d11e06b6f1",
+    "adaptation": "IO root only; original cases and inputs unchanged"
+  },
+  "TEST_V0382_NAV_DISPLAY_LEAD.mjs": {
+    "sourceSha256": "46fa80059356de0d3850dc7167f1718582dd2ddf37ab9e13019e9317e3f91844",
+    "adaptation": "IO root only; original cases and inputs unchanged"
+  }
+}

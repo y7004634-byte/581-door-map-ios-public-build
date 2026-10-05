@@ -1,0 +1,143 @@
+name: Door Map Native Apple TEST - Manual Cost Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      zero_cost_confirmed:
+        description: Existing authorized evidence confirms this run will incur no new charges
+        required: true
+        type: boolean
+        default: false
+      ui_evidence_only:
+        description: Capture supplemental UI screenshots of the already verified App source; no new IPA
+        required: false
+        type: boolean
+        default: false
+      memory_evidence_only:
+        description: Observe build7 scenario memory including simulator WebKit services; no new IPA
+        required: false
+        type: boolean
+        default: false
+      native_dense_ui_only:
+        description: Recheck only the original dense UI path; pair with native_surface_repair_only
+        required: false
+        type: boolean
+        default: false
+      native_surface_repair_only:
+        description: Verify dense-map rendering repair and affected native UI only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_riding_only:
+        description: Test native sensor and FIT UIKit integration only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_mini_only:
+        description: Test native NLSC mini and delivery route core only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_route_only:
+        description: Test native motor-scooter route client and route-choice UI only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_route_tools_only:
+        description: Test native via/avoid/route-editor UI only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_personal_only:
+        description: Test native personal backup, preferences and explicit route-memory storage only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_camera_foundation_only:
+        description: Test new Swift camera rules and compile Apple SDK only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_surface_only:
+        description: Verify native UIKit search and offline surface only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_foundation_only:
+        description: Test new Swift search and native offline foundation only; no IPA
+        required: false
+        type: boolean
+        default: false
+      native_navigation_only:
+        description: Test S8 native normal navigation camera/HUD only; no IPA
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: door581-native-apple-test
+  cancel-in-progress: false
+
+jobs:
+  build-ios:
+    if: ${{ inputs.zero_cost_confirmed == true }}
+    runs-on: xcode-27
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Show runner
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: command -v xcodegen || brew install xcodegen
+      - name: Build, test and package unsigned IPA
+        shell: bash
+        env:
+          DOOR_UI_EVIDENCE_ONLY: ${{ inputs.ui_evidence_only }}
+          DOOR_MEMORY_EVIDENCE_ONLY: ${{ inputs.memory_evidence_only }}
+          DOOR_NATIVE_FOUNDATION_ONLY: ${{ inputs.native_foundation_only }}
+          DOOR_NATIVE_NAVIGATION_ONLY: ${{ inputs.native_navigation_only }}
+          DOOR_NATIVE_SURFACE_ONLY: ${{ inputs.native_surface_only }}
+          DOOR_NATIVE_CAMERA_FOUNDATION_ONLY: ${{ inputs.native_camera_foundation_only }}
+          DOOR_NATIVE_RIDING_ONLY: ${{ inputs.native_riding_only }}
+          DOOR_NATIVE_MINI_ONLY: ${{ inputs.native_mini_only }}
+          DOOR_NATIVE_ROUTE_ONLY: ${{ inputs.native_route_only }}
+          DOOR_NATIVE_ROUTE_TOOLS_ONLY: ${{ inputs.native_route_tools_only }}
+          DOOR_NATIVE_PERSONAL_ONLY: ${{ inputs.native_personal_only }}
+          DOOR_NATIVE_SURFACE_REPAIR_ONLY: ${{ inputs.native_surface_repair_only }}
+          DOOR_NATIVE_DENSE_UI_ONLY: ${{ inputs.native_dense_ui_only }}
+        run: |
+          chmod +x scripts/cloud-build-unsigned.sh
+          scripts/cloud-build-unsigned.sh
+          python3 -c "from pathlib import Path; p=Path('cloud-build/cloud-build.result.txt'); assert p.is_file() and 'status=PASS' in p.read_text(), 'Build exited without a verified PASS receipt'"
+
+      - name: Upload unsigned IPA and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoorMap581-AppleTest-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 1
+          compression-level: 6
+          path: |
+            cloud-build/DoorMap581-unsigned.ipa
+            cloud-build/cloud-build.log
+            cloud-build/cloud-build.result.txt
+            cloud-build/package-verification.json
+            cloud-build/native-tests-summary.json
+            cloud-build/second-device-tests-summary.json
+            cloud-build/simulator-devices.json
+            cloud-build/ui-screenshots
+            cloud-build/memory
+            cloud-build/native-port

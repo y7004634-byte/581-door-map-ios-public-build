@@ -1,0 +1,23 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto'),zlib=require('node:zlib');
+const repo=path.resolve(__dirname,'..'),base=path.join(repo,'DoorMap581/Behavior');
+const read=name=>{const p=path.join(base,name.replace(/^\//,''));return fs.existsSync(p)?fs.readFileSync(p):zlib.gunzipSync(fs.readFileSync(p+'.gz'));};
+const manifest=JSON.parse(read('/offline/taichung-official-202608-v1/manifest.json'));
+const tile=Object.values(manifest.tiles).find(m=>m.count>0),row=JSON.parse(read(tile.path)).rows[0],point={lat:row[0],lng:row[1]};
+const listeners=new Map(),sources=new Map([['kept-trip',{features:['original-route','original-destination']}]]),savedSource=sources.get('kept-trip');
+let pause=false,blocked=[],fetches=0;
+const sandbox={console,TextDecoder,Uint8Array,addEventListener:()=>{},crypto:crypto.webcrypto,document:{hidden:false,addEventListener:(n,f)=>listeners.set(n,f)},setTimeout:()=>1,clearTimeout:()=>{},location:{},fetch:async name=>{fetches++;const bytes=read(name);if(pause&&name!== '/offline/taichung-official-202608-v1/manifest.json')await new Promise(resolve=>blocked.push(resolve));return {ok:true,status:200,json:async()=>JSON.parse(bytes),arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)};},DoorExtras:{point:p=>p&&Number.isFinite(p.lat)&&Number.isFinite(p.lng),officialRows:rows=>rows.map(r=>({lat:r[0],lng:r[1],houseNumber:r[2]})),meters:(a,b)=>Math.hypot(a.lat-b.lat,a.lng-b.lng)*111320},__581DoorMapCanary:{}};
+vm.createContext(sandbox);vm.runInContext(fs.readFileSync(path.join(repo,'DoorMap581/native-bundle-data.js'),'utf8'),sandbox);
+const state={destination:point,routeEnabled:true};
+sandbox.DoorNativeBundle.installStateBridge({state,map:{on:()=>{},getSource:id=>sources.get(id)},inset:{},cameraInteraction:{}});
+const diagnostics=()=>sandbox.__581NativeBundleDiagnostics();
+(async()=>{
+const initial=await sandbox.DoorNativeBundle.officialNear(point,5);assert(initial.length>0);assert(diagnostics().cache>0);
+sandbox.DoorNativeBundle.releaseDisposableCaches();assert.equal(diagnostics().cache,0);assert.equal(diagnostics().cacheBytes,0);
+pause=true;const a=sandbox.DoorNativeBundle.officialNear(point,5),b=sandbox.DoorNativeBundle.officialNear(point,5);await new Promise(resolve=>setImmediate(resolve));assert(blocked.length>0);assert(diagnostics().pending>0);
+sandbox.document.hidden=true;listeners.get('visibilitychange')();assert.equal(diagnostics().cache,0);
+const inFlight=diagnostics().pending;blocked.splice(0).forEach(resolve=>resolve());const [lateA,lateB]=await Promise.all([a,b]);assert.equal(JSON.stringify(lateA),JSON.stringify(initial));assert.equal(JSON.stringify(lateA),JSON.stringify(lateB));assert.equal(diagnostics().pending,0);assert.equal(diagnostics().cache,0,'A late read must not refill an evicted epoch');
+assert.strictEqual(sources.get('kept-trip'),savedSource);assert.strictEqual(state.destination,point);assert.equal(state.routeEnabled,true);
+pause=false;sandbox.document.hidden=false;listeners.get('visibilitychange')();const reloaded=await sandbox.DoorNativeBundle.officialNear(point,5);assert.equal(JSON.stringify(reloaded),JSON.stringify(initial));assert(diagnostics().cache>0);
+console.log(JSON.stringify({status:'PASS',actualPublicTile:tile.path,retainedRows:initial.length,concurrentPendingReads:inFlight,backgroundCacheBytes:0,foregroundReloadEqual:true,activeTripUnchanged:true,fetches}));
+})().catch(error=>{console.error(error);process.exitCode=1;});
