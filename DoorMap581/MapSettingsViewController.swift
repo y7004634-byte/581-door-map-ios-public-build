@@ -4,6 +4,7 @@ final class MapSettingsViewController: UITableViewController {
     var preferences: MapPreferences
     var onChange: ((MapPreferences) -> Void)?
     var onAction: ((String) -> Void)?
+    var onClose: (() -> Void)?
     var cameraStatus: (() -> String)?
     var stationStatus = ""
     var hasApplePlace = false
@@ -17,7 +18,14 @@ final class MapSettingsViewController: UITableViewController {
         tableView.accessibilityIdentifier = "map-settings"
         tableView.rowHeight = 52
     }
-    @objc private func close() { dismiss(animated: true) }
+    @objc private func close() {
+        let completion = onClose
+        if let nav = navigationController, nav.presentingViewController != nil {
+            nav.dismiss(animated: true, completion: completion)
+        } else {
+            dismiss(animated: true, completion: completion)
+        }
+    }
     override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); tableView.reloadData() }
     private func emit() { preferences.sanitize(); preferences.save(); onChange?(preferences) }
     override func numberOfSections(in tableView: UITableView) -> Int { 7 }
