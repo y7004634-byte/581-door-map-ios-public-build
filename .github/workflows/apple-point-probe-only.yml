@@ -1,0 +1,38 @@
+name: Apple Point Probe Only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Probe Apple point identity
+        shell: bash
+        run: |
+          mkdir -p cloud-build
+          xcrun swiftc -parse-as-library scripts/apple-point-probe.swift \
+            -framework MapKit -framework CoreLocation \
+            -o cloud-build/apple-point-probe
+          set +e
+          cloud-build/apple-point-probe > cloud-build/apple-point-probe.json
+          rc=$?
+          set -e
+          cat cloud-build/apple-point-probe.json
+          exit $rc
+
+      - name: Upload probe output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoorMap581-apple-point-probe
+          if-no-files-found: warn
+          retention-days: 7
+          path: cloud-build/apple-point-probe.json
