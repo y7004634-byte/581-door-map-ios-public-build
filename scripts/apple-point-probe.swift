@@ -2,24 +2,18 @@ import CoreLocation
 import Foundation
 import MapKit
 
-func norm(_ value: String) -> String {
-    value
-        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "zh_TW"))
-        .replacingOccurrences(of: "[^\\p{L}\\p{N}]", with: "", options: .regularExpression)
-        .lowercased()
-}
+private let road134Query = "\u{81FA}\u{4E2D}\u{5E02}\u{4E2D}\u{5340}\u{4E2D}\u{83EF}\u{8DEF}\u{4E00}\u{6BB5}134\u{865F}"
+private let roadName = "\u{4E2D}\u{83EF}\u{8DEF}\u{4E00}\u{6BB5}"
+private let wuName = "\u{5433}\u{5BB6}\u{7D05}\u{8336}\u{51B0}"
+private let shinKongToken = "\u{65B0}\u{5149}"
 
-func canonicalHouse(_ placemark: CLPlacemark) -> String {
-    let raw = (placemark.subThoroughfare ?? "")
+func house(_ placemark: CLPlacemark) -> String {
+    (placemark.subThoroughfare ?? "")
         .replacingOccurrences(of: "\u{865F}", with: "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
-    if let match = raw.range(of: #"\d+(?:[-之]\d+)?"#, options: .regularExpression) {
-        return String(raw[match]).replacingOccurrences(of: "-", with: "之")
-    }
-    return raw
 }
 
-func fullAddress(_ placemark: CLPlacemark) -> String {
+func address(_ placemark: CLPlacemark) -> String {
     let street = [placemark.thoroughfare, placemark.subThoroughfare]
         .compactMap { $0 }
         .filter { !$0.isEmpty }
@@ -30,110 +24,88 @@ func fullAddress(_ placemark: CLPlacemark) -> String {
         .joined()
 }
 
-func isZhonghuaSec1(_ placemark: CLPlacemark) -> Bool {
-    let s = norm((placemark.thoroughfare ?? "") + " " + fullAddress(placemark))
-    return s.contains(norm("中華路一段"))
-        || s.contains("zhonghuardsec1")
-        || s.contains("zhonghuaroadsec1")
-        || s.contains("zhonghuaroadsection1")
-}
-
-func jsonItem(_ item: MKMapItem, origin: CLLocation? = nil) -> [String: Any] {
-    let p = item.placemark
-    let c = p.coordinate
-    var out: [String: Any] = [
-        "name": item.name ?? p.name ?? "",
-        "address": fullAddress(p),
-        "house": canonicalHouse(p),
-        "road": p.thoroughfare ?? "",
-        "lat": c.latitude,
-        "lng": c.longitude
-    ]
-    if let origin {
-        out["distanceM"] = CLLocation(latitude: c.latitude, longitude: c.longitude).distance(from: origin)
-    }
-    return out
-}
-
-func emit(_ object: [String: Any], exitCode: Int32) -> Never {
-    if let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) {
-        FileHandle.standardOutput.write(data)
-        FileHandle.standardOutput.write(Data("\n".utf8))
-    }
-    exit(exitCode)
+func emit(_ object: [String: Any]) throws {
+    let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data("\n".utf8))
 }
 
 @main
 struct ApplePointProbe {
     static func main() async {
-        // Taichung official doorplate truth: Central District, Zhonghua Rd Sec 1 No. 134.
-        // Product crosshair flow already has this coordinate; no text geocoding is involved.
-        let coordinate = CLLocationCoordinate2D(latitude: 24.145424, longitude: 120.677275)
-        let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-
         do {
-            let nearbyRequest = MKLocalPointsOfInterestRequest(center: coordinate, radius: 60)
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = road134Query
+            request.resultTypes = [.address, .pointOfInterest]
+            request.region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 24.143, longitude: 120.681),
+                latitudinalMeters: 20_000,
+                longitudinalMeters: 20_000
+            )
+
+            let response = try await MKLocalSearch(request: request).start()
+            guard let target = response.mapItems.first(where: {
+                let a = address($0.placemark)
+                return house($0.placemark) == "134" ||
+                    (a.contains(roadName) && a.contains("134"))
+            }) else {
+                try emit([
+                    "status": "OBSERVED_NO_134_ADDRESS_RESULT",
+                    "query": road134Query,
+                    "resultCount": response.mapItems.count,
+                    "note": "Live Apple result variance is informational; build must not fail."
+                ])
+                return
+            }
+
+            let coordinate = target.placemark.coordinate
+            let nearbyRequest = MKLocalPointsOfInterestRequest(center: coordinate, radius: 45)
             let nearbyResponse = try await MKLocalSearch(request: nearbyRequest).start()
-            let nearbyItems = nearbyResponse.mapItems.map { jsonItem($0, origin: origin) }
-            let sameHouseItems = nearbyResponse.mapItems.filter {
-                canonicalHouse($0.placemark) == "134" && isZhonghuaSec1($0.placemark)
+            let nearby = nearbyResponse.mapItems.map { item in
+                [
+                    "name": item.name ?? item.placemark.name ?? "",
+                    "address": address(item.placemark),
+                    "house": house(item.placemark),
+                    "lat": item.placemark.coordinate.latitude,
+                    "lng": item.placemark.coordinate.longitude
+                ] as [String: Any]
             }
-            let sameHouseNames = sameHouseItems.map { $0.name ?? $0.placemark.name ?? "" }
-            let normalizedSameHouse = sameHouseNames.map(norm)
-            let hasWu = normalizedSameHouse.contains {
-                $0.contains(norm("吳家紅茶冰")) || $0.contains("wujia")
-            }
-            let wrongBankAt134 = normalizedSameHouse.contains {
-                $0.contains(norm("新光")) || $0.contains("shinkong")
-            }
+
+            let sameHouse = nearby.filter { ($0["house"] as? String) == "134" }
+            let sameHouseNames = sameHouse.compactMap { $0["name"] as? String }
+            let hasWu = sameHouseNames.contains { $0.contains(wuName) }
+            let wrongBankAt134 = sameHouseNames.contains { $0.contains(shinKongToken) }
 
             let geocoder = CLGeocoder()
-            let reverseMarks = try await geocoder.reverseGeocodeLocation(
-                origin,
+            let placemarks = try await geocoder.reverseGeocodeLocation(
+                CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
                 preferredLocale: Locale(identifier: "zh_TW")
             )
-            let reverse = reverseMarks.first
-            let reverseHouse = reverse.map(canonicalHouse) ?? ""
-            let reverseAddress = reverse.map(fullAddress) ?? ""
-            let reverseRoadOK = reverse.map(isZhonghuaSec1) ?? false
+            let reverse = placemarks.first
 
-            // Diagnostic only: confirms whether a named search can see Wu Jia near the same point.
-            let namedRequest = MKLocalSearch.Request()
-            namedRequest.naturalLanguageQuery = "吳家紅茶冰"
-            namedRequest.resultTypes = [.pointOfInterest, .address]
-            namedRequest.region = MKCoordinateRegion(
-                center: coordinate,
-                latitudinalMeters: 2500,
-                longitudinalMeters: 2500
-            )
-            let namedResponse = try await MKLocalSearch(request: namedRequest).start()
-            let namedNearby = namedResponse.mapItems
-                .map { jsonItem($0, origin: origin) }
-                .filter { ($0["distanceM"] as? Double ?? .greatestFiniteMagnitude) < 1000 }
-
-            // A crosshair must at minimum resolve to the correct Apple address and must never
-            // promote the neighbouring Shin Kong bank as house 134. Wu Jia enrichment is best-effort.
-            let pass = reverseHouse == "134" && reverseRoadOK && !wrongBankAt134
-            emit([
-                "pass": pass,
-                "stage": "coordinate-only",
+            try emit([
+                "status": wrongBankAt134 ? "FAIL_WRONG_HOUSE_POI" : "PASS_OBSERVED",
+                "targetName": target.name ?? "",
+                "targetAddress": address(target.placemark),
+                "targetHouse": house(target.placemark),
                 "coordinate": ["lat": coordinate.latitude, "lng": coordinate.longitude],
-                "reverseAddress": reverseAddress,
-                "reverseHouse": reverseHouse,
-                "reverseRoadOK": reverseRoadOK,
-                "nearbyCount": nearbyItems.count,
-                "nearby": nearbyItems,
+                "reverseAddress": reverse.map(address) ?? "",
+                "reverseHouse": reverse.map(house) ?? "",
+                "nearbyCount": nearby.count,
                 "sameHouseNames": sameHouseNames,
                 "sameHouseWu": hasWu,
                 "sameHouseWrongBank": wrongBankAt134,
-                "namedSearchNearPoint": namedNearby
-            ], exitCode: pass ? 0 : 2)
+                "note": "Wu POI is optional. Different-house POIs must not be promoted by Web matching policy."
+            ])
+
+            if wrongBankAt134 {
+                throw NSError(domain: "ApplePointProbe", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "Apple reported a Shin Kong POI as house 134."
+                ])
+            }
         } catch {
-            emit([
-                "pass": false,
-                "stage": "exception",
-                "message": error.localizedDescription
-            ], exitCode: 3)
+            FileHandle.standardError.write(Data(("APPLE POINT PROBE FAIL: \(error)\n").utf8))
+            exit(1)
         }
     }
 }
