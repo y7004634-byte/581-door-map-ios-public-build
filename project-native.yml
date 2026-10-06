@@ -21,6 +21,9 @@ targets:
           - MiniMap
           - NativeData
           - battery-stations-fallback.json
+          - native-bundle-data.js
+          - native-main.css
+          - native-map-engine.js
           - SceneDelegate.swift
           - AppleSearchBridge.swift
           - DoorMapViewController.swift
