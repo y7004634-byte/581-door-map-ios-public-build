@@ -1,0 +1,23 @@
+# 581 Door Map → Native iOS Hybrid Checkpoint
+
+- WORKSTREAM: Door Map / Native iOS App / Hybrid WKWebView
+- STATUS: ACTIVE / NO_MAC_CLOUD_BUILD_SOURCE_READY / GITHUB_REMOTE_AUTH_PENDING
+- CURRENT GOAL: compile/test current UIKit + WKWebView shell on GitHub-hosted macOS/Xcode, then sign/install on Windows without owning a Mac.
+- EXECUTION OWNER: ChatGPT + Desktop Commander
+- LAST HEARTBEAT: 2026-09-28T17:55:00+08:00
+- BASELINE LIVE: https://rider-door-map-canary.pages.dev
+- BASELINE RELEASE: v0.3.78 / truthful-generic-search-pins
+- BASELINE SOURCE: F:\581\review\door-map-0372\candidate (READ-ONLY here)
+- WRAPPER SOURCE: F:\581\door-map-ios-native
+- LAST COMPLETED: native shell + tests + no-Mac GitHub Actions xcode-27 workflow + unsigned IPA packager + auto-push helper + Windows-verifiable package builder.
+- TEST/VERIFY STATUS: wrapper static validator PASS; cloud-build shell bash -n PASS; git diff --check PASS; LF attributes PASS; package-source final-byte manifest verification PASS.
+- CLOUD BUILD: push main -> .github/workflows/ios-cloud-build.yml -> xcode-27 -> XcodeGen -> simulator test/build-for-testing -> generic iphoneos unsigned build -> DoorMap581-unsigned.ipa artifact.
+- WINDOWS INSTALL PATH: existing 3uTools can sign IPA with Apple ID and install to iPhone 16; no App Store submission required.
+- LOCAL GIT: branch=main; source-only repo; artifacts/logs are deliberately untracked and retained locally.
+- PACKAGE AUTHORITY: scripts/package-source.ps1; final ZIP/hash/result are recorded outside git in artifacts/package-latest.result.txt and the master handoff.
+- PID/SESSION/RESULT PATH: no long-running wrapper/cloud process yet; validation log=F:\581\door-map-ios-native\logs\validate-wrapper-latest.log
+- SINGLE-WRITER CHECK: no live door-map-ios-native writer/session before takeover; PID 95396 remains unrelated old blocked session and was not touched.
+- BLOCKER/UNRESOLVED: no Mac blocker. Remaining external gate is one-time authorization/provision of a private GitHub repository remote; after push, cloud build is automatic.
+- DO NOT REDO: do not rewrite Web; do not modify routing/search/POI/Google Maps/Google Places/MKLocalSearch; do not use old Door Map snapshot; do not touch 定位寶貝 IPA.
+- IMPORTANT CONSTRAINTS: GPT + Desktop Commander only; no Work; no Codex; Phase-1 remains remoteLive.
+- NEXT STEP: obtain/authorize private GitHub remote, run scripts/push-cloud-repo.ps1 <remote>, observe Actions result, retrieve unsigned IPA, sign/install via 3uTools, then execute DEVICE_ACCEPTANCE.md.

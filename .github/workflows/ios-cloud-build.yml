@@ -1,0 +1,83 @@
+name: Door Map iOS Cloud Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: xcode-27
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Show runner
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build, test and package unsigned IPA
+        shell: bash
+        run: |
+          chmod +x scripts/cloud-build-unsigned.sh
+          scripts/cloud-build-unsigned.sh
+
+      - name: Probe Apple MKLocalSearch
+        shell: bash
+        run: |
+          xcrun swiftc -parse-as-library scripts/apple-search-probe.swift \
+            -framework MapKit -framework CoreLocation \
+            -o cloud-build/apple-search-probe
+          cloud-build/apple-search-probe > cloud-build/apple-search-probe.json
+          cat cloud-build/apple-search-probe.json
+
+      - name: Probe Apple point identity
+        shell: bash
+        run: |
+          xcrun swiftc -parse-as-library scripts/apple-point-probe.swift \
+            -framework MapKit -framework CoreLocation \
+            -o cloud-build/apple-point-probe
+          cloud-build/apple-point-probe > cloud-build/apple-point-probe.json
+          cat cloud-build/apple-point-probe.json
+
+      - name: Publish private release fallback
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="native-${GITHUB_SHA}"
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" \
+            cloud-build/DoorMap581-unsigned.ipa \
+            cloud-build/cloud-build.log \
+            cloud-build/cloud-build.result.txt \
+            cloud-build/apple-search-probe.json \
+            cloud-build/apple-point-probe.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "581 Door Map native ${GITHUB_SHA}" \
+            --notes "Unsigned private build artifact for SideStore/LC installation."
+
+      - name: Upload unsigned IPA and logs
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoorMap581-xcode27-unsigned
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            cloud-build/DoorMap581-unsigned.ipa
+            cloud-build/cloud-build.log
+            cloud-build/cloud-build.result.txt
+            cloud-build/apple-search-probe.json
+            cloud-build/apple-point-probe.json

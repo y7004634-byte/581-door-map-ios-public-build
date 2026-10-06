@@ -1,0 +1,14 @@
+{
+  "workstream": "581 Door Map Native iOS Hybrid",
+  "phase": "Phase 1 remote-live WKWebView",
+  "checkedAt": "2026-09-28T17:07:09+08:00",
+  "liveURL": "https://rider-door-map-canary.pages.dev",
+  "release": {
+    "version": "0.3.78",
+    "build": "truthful-generic-search-pins",
+    "releasedAt": "2026-09-28T15:25:29+08:00"
+  },
+  "webSource": "F:\\581\\review\\door-map-0372\\candidate",
+  "webSourcePolicy": "read-only from native iOS workstream",
+  "contentMode": "remoteLive"
+}
