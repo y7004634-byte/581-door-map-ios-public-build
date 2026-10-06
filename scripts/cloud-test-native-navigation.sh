@@ -40,6 +40,10 @@ if [[ "$HELP" == *"-collect-test-diagnostics"* ]]; then TEST_FLAGS+=(-collect-te
 xcodegen generate
 xcrun simctl list devices available -j > "$OUT/simulator-devices.json"
 SIM="$(python3 -c 'import json; ds=json.load(open("cloud-build/simulator-devices.json"))["devices"]; print(next(d["udid"] for r,rows in ds.items() if ".iOS-" in r for d in rows if d.get("isAvailable") and d["name"].startswith("iPhone")))')"
+PHASE=simulator-boot
+xcrun simctl shutdown all || true
+xcrun simctl boot "$SIM" || true
+xcrun simctl bootstatus "$SIM" -b
 PHASE=native-navigation-tests
 xcodebuild -project DoorMap581.xcodeproj -scheme DoorMap581 \
  -destination "platform=iOS Simulator,id=$SIM" -destination-timeout 60 \
