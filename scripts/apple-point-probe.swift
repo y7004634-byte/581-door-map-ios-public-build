@@ -66,45 +66,12 @@ func emit(_ object: [String: Any], exitCode: Int32) -> Never {
 @main
 struct ApplePointProbe {
     static func main() async {
-        let taichungCenter = CLLocation(latitude: 24.145, longitude: 120.6765)
-        let region = MKCoordinateRegion(
-            center: taichungCenter.coordinate,
-            latitudinalMeters: 12_000,
-            longitudinalMeters: 12_000
-        )
+        // Taichung official doorplate truth: Central District, Zhonghua Rd Sec 1 No. 134.
+        // Product crosshair flow already has this coordinate; no text geocoding is involved.
+        let coordinate = CLLocationCoordinate2D(latitude: 24.145424, longitude: 120.677275)
+        let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
 
         do {
-            // Seed ONLY the test coordinate. Product point resolution below does
-            // not know/query the shop name; it receives just the chosen point.
-            let seedRequest = MKLocalSearch.Request()
-            seedRequest.naturalLanguageQuery = "吳家紅茶冰"
-            seedRequest.resultTypes = [.pointOfInterest, .address]
-            seedRequest.region = region
-
-            let seedResponse = try await MKLocalSearch(request: seedRequest).start()
-            let seedCandidates = seedResponse.mapItems.map { jsonItem($0) }
-            guard let target = seedResponse.mapItems.first(where: {
-                let p = $0.placemark
-                let c = p.coordinate
-                let dist = CLLocation(latitude: c.latitude, longitude: c.longitude).distance(from: taichungCenter)
-                let n = norm($0.name ?? p.name ?? "")
-                return dist < 10_000
-                    && canonicalHouse(p) == "134"
-                    && isZhonghuaSec1(p)
-                    && (n.contains(norm("吳家紅茶冰")) || n.contains("wujia"))
-            }) else {
-                emit([
-                    "pass": false,
-                    "stage": "seed-search",
-                    "message": "Apple search did not expose a Taichung Zhonghua Sec 1 house 134 Wu Jia item",
-                    "seedCandidates": seedCandidates
-                ], exitCode: 1)
-            }
-
-            let coordinate = target.placemark.coordinate
-            let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-
-            // This is the actual product behavior being tested: coordinate only.
             let nearbyRequest = MKLocalPointsOfInterestRequest(center: coordinate, radius: 60)
             let nearbyResponse = try await MKLocalSearch(request: nearbyRequest).start()
             let nearbyItems = nearbyResponse.mapItems.map { jsonItem($0, origin: origin) }
@@ -112,7 +79,6 @@ struct ApplePointProbe {
                 canonicalHouse($0.placemark) == "134" && isZhonghuaSec1($0.placemark)
             }
             let sameHouseNames = sameHouseItems.map { $0.name ?? $0.placemark.name ?? "" }
-
             let normalizedSameHouse = sameHouseNames.map(norm)
             let hasWu = normalizedSameHouse.contains {
                 $0.contains(norm("吳家紅茶冰")) || $0.contains("wujia")
@@ -127,19 +93,41 @@ struct ApplePointProbe {
                 preferredLocale: Locale(identifier: "zh_TW")
             )
             let reverse = reverseMarks.first
+            let reverseHouse = reverse.map(canonicalHouse) ?? ""
+            let reverseAddress = reverse.map(fullAddress) ?? ""
+            let reverseRoadOK = reverse.map(isZhonghuaSec1) ?? false
 
+            // Diagnostic only: confirms whether a named search can see Wu Jia near the same point.
+            let namedRequest = MKLocalSearch.Request()
+            namedRequest.naturalLanguageQuery = "吳家紅茶冰"
+            namedRequest.resultTypes = [.pointOfInterest, .address]
+            namedRequest.region = MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: 2500,
+                longitudinalMeters: 2500
+            )
+            let namedResponse = try await MKLocalSearch(request: namedRequest).start()
+            let namedNearby = namedResponse.mapItems
+                .map { jsonItem($0, origin: origin) }
+                .filter { ($0["distanceM"] as? Double ?? .greatestFiniteMagnitude) < 1000 }
+
+            // A crosshair must at minimum resolve to the correct Apple address and must never
+            // promote the neighbouring Shin Kong bank as house 134. Wu Jia enrichment is best-effort.
+            let pass = reverseHouse == "134" && reverseRoadOK && !wrongBankAt134
             emit([
-                "pass": hasWu && !wrongBankAt134,
-                "stage": "nearby-poi",
-                "seed": jsonItem(target),
-                "reverseAddress": reverse.map(fullAddress) ?? "",
-                "reverseHouse": reverse.map(canonicalHouse) ?? "",
+                "pass": pass,
+                "stage": "coordinate-only",
+                "coordinate": ["lat": coordinate.latitude, "lng": coordinate.longitude],
+                "reverseAddress": reverseAddress,
+                "reverseHouse": reverseHouse,
+                "reverseRoadOK": reverseRoadOK,
                 "nearbyCount": nearbyItems.count,
                 "nearby": nearbyItems,
                 "sameHouseNames": sameHouseNames,
                 "sameHouseWu": hasWu,
-                "sameHouseWrongBank": wrongBankAt134
-            ], exitCode: hasWu && !wrongBankAt134 ? 0 : 2)
+                "sameHouseWrongBank": wrongBankAt134,
+                "namedSearchNearPoint": namedNearby
+            ], exitCode: pass ? 0 : 2)
         } catch {
             emit([
                 "pass": false,

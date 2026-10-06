@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      probe_only:
+        description: Run only the Apple point-identity probe
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
@@ -25,14 +30,18 @@ jobs:
           xcodebuild -version
 
       - name: Install XcodeGen
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.probe_only != 'true' }}
         run: brew install xcodegen
+
       - name: Build, test and package unsigned IPA
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.probe_only != 'true' }}
         shell: bash
         run: |
           chmod +x scripts/cloud-build-unsigned.sh
           scripts/cloud-build-unsigned.sh
 
       - name: Probe Apple MKLocalSearch
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.probe_only != 'true' }}
         shell: bash
         run: |
           xcrun swiftc -parse-as-library scripts/apple-search-probe.swift \
@@ -44,6 +53,7 @@ jobs:
       - name: Probe Apple point identity
         shell: bash
         run: |
+          mkdir -p cloud-build
           xcrun swiftc -parse-as-library scripts/apple-point-probe.swift \
             -framework MapKit -framework CoreLocation \
             -o cloud-build/apple-point-probe
@@ -51,7 +61,7 @@ jobs:
           cat cloud-build/apple-point-probe.json
 
       - name: Publish private release fallback
-        if: success()
+        if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.probe_only != 'true') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
