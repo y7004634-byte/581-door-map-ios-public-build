@@ -16,6 +16,7 @@ targets:
       - path: DoorMap581
         excludes:
           - Info.plist
+          - RestoredAppleMapViewController.swift
     settings:
       base:
         INFOPLIST_FILE: DoorMap581/Info.plist
