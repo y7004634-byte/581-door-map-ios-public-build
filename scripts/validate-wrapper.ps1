@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root 'DoorMap581'
 $failures = [System.Collections.Generic.List[string]]::new()
@@ -18,6 +18,7 @@ try {
 }
 $plistRaw = Raw $plistPath
 Check ($plistRaw.Contains('<string>door581</string>')) 'door581 URL scheme registered'
+Check ($plistRaw.Contains('<string>waze</string>')) 'waze URL scheme registered for direct Uber routing'
 Check ($plistRaw.Contains('NSLocationWhenInUseUsageDescription')) 'location permission description present'
 Check ($plistRaw.Contains('NSMotionUsageDescription')) 'motion permission description present'
 Check ($plistRaw.Contains('UIApplicationSceneManifest')) 'scene lifecycle manifest present'
@@ -56,6 +57,8 @@ Check (Has $loc 'pendingOneShot') 'first authorization request resumes pending l
 Check (-not (Has $vc 'locationBridge.preparePermission()')) 'native shell does not race Web geolocation on launch'
 Check (Has $router 'URLQueryItem(name: "dest"') 'destination deep-link mapping present'
 Check (Has $router 'URLQueryItem(name: "gmap"') 'Google share deep-link mapping present'
+Check (Has $router 'scheme == "waze"') 'Waze direct-routing scheme handler present'
+Check (Has $router 'wazeDestination') 'Waze ll parser present'
 Check (-not (Has $router 'Dictionary(uniqueKeysWithValues:')) 'duplicate deep-link query keys cannot trap dictionary construction'
 Check (Has $project 'excludes:') 'Info.plist excluded from source copy phase'
 Check (Has $project 'SWIFT_VERSION: "5.0"') 'Swift language mode is Xcode-compatible'
@@ -63,7 +66,7 @@ Check (Has $project 'PRODUCT_MODULE_NAME: DoorMap581') 'Swift module name is sta
 Check (Has $project 'PRODUCT_BUNDLE_IDENTIFIER: com.door581.probe') 'SideStore/LC managed bundle identity preserved'
 Check (Has $project 'ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon') 'native AppIcon catalog configured'
 Check ((Test-Path (Join-Path $src 'Assets.xcassets\AppIcon.appiconset\Contents.json'))) 'AppIcon asset catalog present'
-Check ($plistRaw.Contains('<string>0.1.3</string>')) 'native version bumped to 0.1.3'
+Check ($plistRaw.Contains('<string>0.1.4</string>')) 'native version bumped to 0.1.4'
 Check (Has $project 'DoorMap581Tests:') 'unit-test target declared'
 Check (Has $bridge 'injectionTime: .atDocumentEnd') 'native-ready handshake runs after document load'
 
