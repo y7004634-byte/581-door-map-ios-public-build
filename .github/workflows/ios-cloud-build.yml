@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - build-original-apple-pin-20261006
   workflow_dispatch:
     inputs:
       probe_only:
