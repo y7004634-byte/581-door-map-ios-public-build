@@ -1,3 +1,4 @@
+param([string]$WebCandidate = (Join-Path $PSScriptRoot '..\..\door-map-apple-pin-truth\public'))
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root 'DoorMap581'
@@ -17,13 +18,14 @@ try {
   Check $false ('Info.plist XML parses: ' + $_.Exception.Message)
 }
 $plistRaw = Raw $plistPath
-Check ($plistRaw.Contains('<string>door581</string>')) 'door581 URL scheme registered'
+Check ($plistRaw.Contains('<string>door581-apple-test</string>')) 'isolated Apple test URL scheme registered'
+Check (-not ($plistRaw.Contains('<string>waze</string>'))) 'Apple test wrapper does not claim production Waze URL scheme'
 Check ($plistRaw.Contains('NSLocationWhenInUseUsageDescription')) 'location permission description present'
 Check ($plistRaw.Contains('NSMotionUsageDescription')) 'motion permission description present'
 Check ($plistRaw.Contains('UIApplicationSceneManifest')) 'scene lifecycle manifest present'
 Check ($plistRaw.Contains('CFBundleInfoDictionaryVersion')) 'standard bundle metadata present'
 Check ($plistRaw.Contains('LSRequiresIPhoneOS')) 'iPhone OS requirement declared'
-Check (-not ($plistRaw -match 'NSAllowsArbitraryLoads[\s\S]{0,100}<true/>')) 'ATS arbitrary loads not enabled'
+Check ($plistRaw -match '<key>NSAllowsArbitraryLoads</key>\s*<false\s*/>') 'ATS arbitrary loads explicitly disabled'
 
 $vc = Join-Path $src 'DoorMapViewController.swift'
 $loc = Join-Path $src 'LocationBridge.swift'
@@ -43,11 +45,8 @@ Check (Has $vc 'requestDeviceOrientationAndMotionPermissionFor') 'WKWebView moti
 Check (Has $vc 'decisionHandler(.deny)') 'native shell never prompts WebKit motion/orientation permission'
 Check (Has $bridge 'WKScriptMessageHandler') 'JavaScript to Swift message bridge present'
 Check (Has $bridge 'searchApple') 'native bridge exposes Apple search'
-Check (Has $bridge 'resolveApplePoint') 'native bridge exposes Apple point resolver'
 Check (Has $bridge 'startLocation') 'native bridge exposes continuous location stream'
 Check (Has $apple 'MKLocalSearch') 'Apple MKLocalSearch bridge present'
-Check (Has $apple 'MKLocalPointsOfInterestRequest') 'Apple nearby POI point lookup present'
-Check (Has $apple 'reverseGeocodeLocation') 'Apple reverse geocode present'
 Check (Has $loc 'requestWhenInUseAuthorization') 'native location permission flow present'
 Check (Has $loc 'manager.startUpdatingHeading()') 'foreground native heading stream present'
 Check (Has $loc 'manager.startUpdatingLocation()') 'native continuous GPS stream present'
@@ -56,14 +55,17 @@ Check (Has $loc 'pendingOneShot') 'first authorization request resumes pending l
 Check (-not (Has $vc 'locationBridge.preparePermission()')) 'native shell does not race Web geolocation on launch'
 Check (Has $router 'URLQueryItem(name: "dest"') 'destination deep-link mapping present'
 Check (Has $router 'URLQueryItem(name: "gmap"') 'Google share deep-link mapping present'
+Check (Has $router 'scheme == "waze"') 'Uber Waze scheme handled directly'
+Check (Has $router '$0.name.lowercased() == "ll"') 'Uber Waze ll coordinate parsed directly'
 Check (-not (Has $router 'Dictionary(uniqueKeysWithValues:')) 'duplicate deep-link query keys cannot trap dictionary construction'
 Check (Has $project 'excludes:') 'Info.plist excluded from source copy phase'
 Check (Has $project 'SWIFT_VERSION: "5.0"') 'Swift language mode is Xcode-compatible'
 Check (Has $project 'PRODUCT_MODULE_NAME: DoorMap581') 'Swift module name is stable for @testable import'
-Check (Has $project 'PRODUCT_BUNDLE_IDENTIFIER: com.door581.probe') 'SideStore/LC managed bundle identity preserved'
+Check (Has $project 'PRODUCT_BUNDLE_IDENTIFIER: com.door581.appletest') 'isolated Apple test bundle identity preserved'
 Check (Has $project 'ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon') 'native AppIcon catalog configured'
 Check ((Test-Path (Join-Path $src 'Assets.xcassets\AppIcon.appiconset\Contents.json'))) 'AppIcon asset catalog present'
-Check ($plistRaw.Contains('<string>0.1.3</string>')) 'native version bumped to 0.1.3'
+Check ($plistRaw -match '<key>CFBundleShortVersionString</key>\s*<string>0\.3\.2</string>') 'wrapper marketing version is 0.3.2'
+Check ($plistRaw -match '<key>CFBundleVersion</key>\s*<string>10</string>') 'wrapper build is 10'
 Check (Has $project 'DoorMap581Tests:') 'unit-test target declared'
 Check (Has $bridge 'injectionTime: .atDocumentEnd') 'native-ready handshake runs after document load'
 
@@ -75,7 +77,7 @@ Check (Has $bridge 'injectionTime: .atDocumentEnd') 'native-ready handshake runs
   Check ($raw.TrimEnd().EndsWith('}')) ($_.Name + ' ends at a closed declaration')
 }
 
-$candidate = 'F:\581\review\door-map-0372\candidate\public'
+$candidate = $WebCandidate
 $doorMap = Join-Path $candidate 'door-map.js'
 $index = Join-Path $candidate 'index.html'
 $releasePath = Join-Path $candidate 'release.json'

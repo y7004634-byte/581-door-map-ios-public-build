@@ -1,7 +1,28 @@
-import CoreLocation
 import Foundation
+import Contacts
+import CoreLocation
 import MapKit
 import WebKit
+
+/// Coordinate identity uses only the address. POIs remain diagnostic, including
+/// same-house results; only an explicit Apple text-search selection names a PIN.
+/// Independent halves preserve the address when the diagnostic POI lookup fails.
+struct AppleReverseResult {
+    var address: [String: Any]?
+    var pois: [[String: Any]] = []
+    var errors: [String: String] = [:]
+
+    func payload(point: AppleReversePoint) -> [String: Any] {
+        return [
+            "source": "apple-reverse",
+            "point": ["lat": point.latitude, "lng": point.longitude],
+            "radiusM": point.radiusM,
+            "address": address.map { $0 as Any } ?? NSNull(),
+            "pois": pois,
+            "errors": errors
+        ]
+    }
+}
 
 final class AppleSearchBridge {
     private struct QueryPlan {
@@ -13,15 +34,140 @@ final class AppleSearchBridge {
 
     weak var webView: WKWebView?
     private var activeSearch: MKLocalSearch?
-    private var activePointSearch: MKLocalSearch?
-    private let geocoder = CLGeocoder()
+    private var activeReverse: ReverseRequest?
+
+    private final class ReverseRequest {
+        let requestID: String
+        let point: AppleReversePoint
+        let geocoder = CLGeocoder()
+        var search: MKLocalSearch?
+        var timeout: DispatchWorkItem?
+        var result = AppleReverseResult()
+        var addressFinished = false
+        var poisFinished = false
+
+        init(requestID: String, point: AppleReversePoint) {
+            self.requestID = requestID
+            self.point = point
+        }
+
+        func cancel() {
+            timeout?.cancel()
+            geocoder.cancelGeocode()
+            search?.cancel()
+        }
+    }
 
     func cancel() {
-        activeSearch?.cancel()
-        activeSearch = nil
-        activePointSearch?.cancel()
-        activePointSearch = nil
-        geocoder.cancelGeocode()
+        activeSearch?.cancel(); activeSearch = nil
+        cancelReverse()
+    }
+
+    private func cancelReverse() {
+        guard let previous = activeReverse else { return }
+        activeReverse = nil
+        previous.cancel()
+        resolve(requestID: previous.requestID, ok: false, payload: ["message": "Apple reverse cancelled"])
+    }
+
+    /// Destination-only lookup; ordinary text search has a separate cancellation slot.
+    func reverse(requestID: String, latitude: Double, longitude: Double, radiusM: Double = 50) {
+        guard let point = AppleReversePoint(latitude: latitude, longitude: longitude, radiusM: radiusM) else {
+            resolve(requestID: requestID, ok: false, payload: ["message": "Invalid Apple reverse coordinate"])
+            return
+        }
+        cancelReverse()
+        let pending = ReverseRequest(requestID: requestID, point: point)
+        activeReverse = pending
+        let location = CLLocation(latitude: point.latitude, longitude: point.longitude)
+        let request = MKLocalPointsOfInterestRequest(center: location.coordinate, radius: point.radiusM)
+        let search = MKLocalSearch(request: request)
+        pending.search = search
+
+        let timeout = DispatchWorkItem { [weak self, weak pending] in
+            guard let self, let pending, self.activeReverse === pending else { return }
+            if !pending.addressFinished { pending.result.errors["address"] = "timeout" }
+            if !pending.poisFinished { pending.result.errors["pois"] = "timeout" }
+            self.finishReverse(pending)
+        }
+        pending.timeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
+
+        pending.geocoder.reverseGeocodeLocation(location, preferredLocale: Locale(identifier: "zh_TW")) { [weak self, weak pending] placemarks, error in
+            DispatchQueue.main.async {
+                guard let self, let pending, self.activeReverse === pending else { return }
+                pending.addressFinished = true
+                if let placemark = placemarks?.first {
+                    pending.result.address = Self.addressPayload(placemark)
+                } else {
+                    pending.result.errors["address"] = error?.localizedDescription ?? "No Apple address"
+                }
+                if pending.poisFinished { self.finishReverse(pending) }
+            }
+        }
+        search.start { [weak self, weak pending] response, error in
+            DispatchQueue.main.async {
+                guard let self, let pending, self.activeReverse === pending else { return }
+                pending.poisFinished = true
+                if let response {
+                    pending.result.pois = response.mapItems.compactMap {
+                        Self.poiPayload($0, origin: location, radiusM: point.radiusM)
+                    }.sorted { ($0["distanceM"] as? Double ?? .infinity) < ($1["distanceM"] as? Double ?? .infinity) }
+                } else {
+                    pending.result.errors["pois"] = error?.localizedDescription ?? "No Apple POI response"
+                }
+                if pending.addressFinished { self.finishReverse(pending) }
+            }
+        }
+    }
+
+    private func finishReverse(_ pending: ReverseRequest) {
+        guard activeReverse === pending else { return }
+        activeReverse = nil
+        pending.cancel()
+        resolve(requestID: pending.requestID, ok: true, payload: pending.result.payload(point: pending.point))
+    }
+
+    static func addressPayload(_ placemark: CLPlacemark) -> [String: Any] {
+        let house = placemark.subThoroughfare ?? ""
+        let road = placemark.thoroughfare ?? ""
+        let fallback = [placemark.administrativeArea, placemark.locality, placemark.subLocality, road, house]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined()
+        let formatted = placemark.postalAddress.map {
+            CNPostalAddressFormatter.string(from: $0, style: .mailingAddress).replacingOccurrences(of: "\n", with: " ")
+        } ?? fallback
+        var result: [String: Any] = [
+            "houseNumber": house, "subThoroughfare": house,
+            "road": road, "thoroughfare": road,
+            "locality": placemark.locality ?? "",
+            "subLocality": placemark.subLocality ?? "",
+            "administrativeArea": placemark.administrativeArea ?? "",
+            "address": formatted, "formattedAddress": formatted,
+            "source": "apple-clgeocoder"
+        ]
+        if let coordinate = placemark.location?.coordinate, CLLocationCoordinate2DIsValid(coordinate) {
+            result["lat"] = coordinate.latitude
+            result["lng"] = coordinate.longitude
+            result["coordinate"] = ["lat": coordinate.latitude, "lng": coordinate.longitude]
+        }
+        return result
+    }
+
+    static func poiPayload(_ item: MKMapItem, origin: CLLocation, radiusM: Double) -> [String: Any]? {
+        let coordinate = item.placemark.coordinate
+        guard CLLocationCoordinate2DIsValid(coordinate),
+              let name = item.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        let distance = origin.distance(from: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude))
+        guard distance.isFinite, distance <= radiusM else { return nil }
+        var result = addressPayload(item.placemark)
+        result["displayName"] = name
+        result["lat"] = coordinate.latitude
+        result["lng"] = coordinate.longitude
+        result["coordinate"] = ["lat": coordinate.latitude, "lng": coordinate.longitude]
+        result["distanceM"] = distance
+        result["poiCategory"] = item.pointOfInterestCategory?.rawValue ?? ""
+        result["source"] = "apple-mklocalsearch"
+        return result
     }
 
     private func normalized(_ value: String) -> String {
@@ -33,58 +179,6 @@ final class AppleSearchBridge {
                 options: .regularExpression
             )
             .lowercased()
-    }
-
-    private func addressFields(_ placemark: CLPlacemark) -> [String: Any] {
-        let road = (placemark.thoroughfare ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let rawHouse = (placemark.subThoroughfare ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let houseNumber = rawHouse
-            .replacingOccurrences(of: "\u{865F}", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let street = [road, rawHouse].filter { !$0.isEmpty }.joined()
-        let address = [
-            placemark.administrativeArea,
-            placemark.locality,
-            placemark.subLocality,
-            street.isEmpty ? nil : street
-        ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-        .joined()
-
-        var out: [String: Any] = [
-            "road": road,
-            "houseNumber": houseNumber,
-            "address": address
-        ]
-        if let name = placemark.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-            out["name"] = name
-        }
-        return out
-    }
-
-    private func pointItem(
-        _ item: MKMapItem,
-        origin: CLLocation? = nil
-    ) -> [String: Any]? {
-        let placemark = item.placemark
-        let coordinate = placemark.coordinate
-        guard CLLocationCoordinate2DIsValid(coordinate) else { return nil }
-
-        var out = addressFields(placemark)
-        let displayName = (item.name ?? placemark.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        out["displayName"] = displayName
-        out["lat"] = coordinate.latitude
-        out["lng"] = coordinate.longitude
-        out["source"] = "apple-mapkit"
-        out["feature"] = item.pointOfInterestCategory?.rawValue
-            .replacingOccurrences(of: "MKPOICategory", with: "")
-            .lowercased() ?? ""
-        if let origin {
-            let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-            out["distanceM"] = here.distance(from: origin)
-        }
-        return out
     }
 
     private func plan(for query: String) -> QueryPlan {
@@ -127,7 +221,8 @@ final class AppleSearchBridge {
         requestID: String,
         query: String,
         latitude: Double?,
-        longitude: Double?
+        longitude: Double?,
+        radiusM: Double = 3000
     ) {
         activeSearch?.cancel()
         let plan = plan(for: query)
@@ -139,7 +234,8 @@ final class AppleSearchBridge {
         if let latitude, let longitude {
             request.region = MKCoordinateRegion(
                 center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
-                span: MKCoordinateSpan(latitudeDelta: 0.45, longitudeDelta: 0.45)
+                latitudinalMeters: min(8000, max(3000, radiusM)) * 2,
+                longitudinalMeters: min(8000, max(3000, radiusM)) * 2
             )
         } else {
             request.region = MKCoordinateRegion(
@@ -193,7 +289,9 @@ final class AppleSearchBridge {
                     "address": address,
                     "lat": coordinate.latitude,
                     "lng": coordinate.longitude,
-                    "source": "apple-mklocalsearch"
+                    "source": "apple-mklocalsearch",
+                    "feature": item.pointOfInterestCategory?.rawValue.replacingOccurrences(of: "MKPOICategory", with: "").lowercased() ?? "",
+                    "sourceLabel": "Apple 地圖"
                 ]
                 if let alias = plan.alias { result["aliases"] = alias }
                 if let brandKey = plan.brandKey { result["appleBrandKey"] = brandKey }
@@ -211,91 +309,8 @@ final class AppleSearchBridge {
         }
     }
 
-    func resolvePoint(
-        requestID: String,
-        latitude: Double,
-        longitude: Double,
-        radiusM: Double = 45
-    ) {
-        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        guard CLLocationCoordinate2DIsValid(coordinate) else {
-            resolve(requestID: requestID, ok: false, payload: ["message": "Invalid Apple lookup coordinate"])
-            return
-        }
-
-        activePointSearch?.cancel()
-        activePointSearch = nil
-        geocoder.cancelGeocode()
-
-        let origin = CLLocation(latitude: latitude, longitude: longitude)
-        let radius = min(80, max(20, radiusM))
-        let group = DispatchGroup()
-        var reverse: [String: Any] = [:]
-        var pois: [[String: Any]] = []
-        var reverseError = ""
-        var poiError = ""
-
-        group.enter()
-        geocoder.reverseGeocodeLocation(
-            origin,
-            preferredLocale: Locale(identifier: "zh_TW")
-        ) { [weak self] placemarks, error in
-            guard let self else { group.leave(); return }
-            DispatchQueue.main.async {
-                if let placemark = placemarks?.first {
-                    reverse = self.addressFields(placemark)
-                } else if let error {
-                    reverseError = error.localizedDescription
-                }
-                group.leave()
-            }
-        }
-
-        group.enter()
-        let request = MKLocalPointsOfInterestRequest(center: coordinate, radius: radius)
-        let search = MKLocalSearch(request: request)
-        activePointSearch = search
-        search.start { [weak self] response, error in
-            guard let self else { group.leave(); return }
-            DispatchQueue.main.async {
-                if let error {
-                    poiError = error.localizedDescription
-                } else {
-                    pois = response?.mapItems
-                        .compactMap { self.pointItem($0, origin: origin) }
-                        .sorted {
-                            ($0["distanceM"] as? Double ?? .greatestFiniteMagnitude) <
-                            ($1["distanceM"] as? Double ?? .greatestFiniteMagnitude)
-                        } ?? []
-                }
-                group.leave()
-            }
-        }
-
-        group.notify(queue: .main) { [weak self] in
-            guard let self else { return }
-            var payload: [String: Any] = [
-                "address": reverse,
-                "pois": Array(pois.prefix(24)),
-                "radiusM": radius
-            ]
-            if !reverseError.isEmpty { payload["reverseError"] = reverseError }
-            if !poiError.isEmpty { payload["poiError"] = poiError }
-            self.resolve(requestID: requestID, ok: true, payload: payload)
-        }
-    }
-
     private func resolve(requestID: String, ok: Bool, payload: [String: Any]) {
-        let args: [Any] = [requestID, ok, payload]
-        guard JSONSerialization.isValidJSONObject(args),
-              let data = try? JSONSerialization.data(withJSONObject: args),
-              let json = String(data: data, encoding: .utf8) else { return }
-
-        let script = """
-        window.Door581Native &&
-        window.Door581Native._resolve &&
-        window.Door581Native._resolve.apply(window.Door581Native, \(json));
-        """
+        guard let script = NativeBridge.resolutionScript(requestID: requestID, ok: ok, payload: payload) else { return }
 
         DispatchQueue.main.async { [weak webView] in
             webView?.evaluateJavaScript(script)

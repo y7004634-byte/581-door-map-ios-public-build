@@ -106,7 +106,6 @@ final class DoorMapViewController: UIViewController, NativeBridgeDelegate {
         let active = state == "foreground" || state == "willForeground"
         if active { updateHeadingOrientation() }
         locationBridge.setAppActive(active)
-        if !active { appleSearchBridge.cancel() }
         guard webView != nil else { return }
         let escaped = state.replacingOccurrences(of: "'", with: "\\'")
         let script = """
@@ -115,6 +114,17 @@ final class DoorMapViewController: UIViewController, NativeBridgeDelegate {
         }));
         """
         webView.evaluateJavaScript(script)
+    }
+
+    func prepareForSceneDisconnect() {
+        locationBridge.setAppActive(false)
+        locationBridge.setContinuousLocationEnabled(false)
+        appleSearchBridge.cancel()
+        nativeBridge.delegate = nil
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: AppConfig.nativeBridgeName)
     }
 
     private func updateHeadingOrientation() {
@@ -142,28 +152,20 @@ final class DoorMapViewController: UIViewController, NativeBridgeDelegate {
         requestID: String,
         query: String,
         latitude: Double?,
-        longitude: Double?
+        longitude: Double?,
+        radiusM: Double
     ) {
         appleSearchBridge.search(
             requestID: requestID,
             query: query,
             latitude: latitude,
-            longitude: longitude
-        )
-    }
-
-    func resolveApplePoint(
-        requestID: String,
-        latitude: Double,
-        longitude: Double,
-        radiusM: Double
-    ) {
-        appleSearchBridge.resolvePoint(
-            requestID: requestID,
-            latitude: latitude,
             longitude: longitude,
             radiusM: radiusM
         )
+    }
+
+    func reverseApple(requestID: String, latitude: Double, longitude: Double, radiusM: Double) {
+        appleSearchBridge.reverse(requestID: requestID, latitude: latitude, longitude: longitude, radiusM: radiusM)
     }
 
     func openExternalURL(_ url: URL) {

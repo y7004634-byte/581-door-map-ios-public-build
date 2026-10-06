@@ -30,6 +30,18 @@ final class DeepLinkRouterTests: XCTestCase {
         XCTAssertEqual(query(resolved, "gmap"), incoming.absoluteString)
     }
 
+    func testUberWazeCoordinateURL() {
+        let incoming = URL(string: "waze://?ll=24.1371,120.668491&navigate=yes")!
+        let resolved = DeepLinkRouter.webURL(for: DeepLinkRouter.payload(from: incoming))
+        XCTAssertEqual(query(resolved, "dest"), "24.1371,120.668491")
+    }
+
+    func testUberWazeRejectsInvalidCoordinate() {
+        let incoming = URL(string: "waze://?ll=35.0,139.0&navigate=yes")!
+        let resolved = DeepLinkRouter.webURL(for: DeepLinkRouter.payload(from: incoming))
+        XCTAssertNil(query(resolved, "dest"))
+    }
+
     func testUnknownExternalURLFallsBackHome() {
         let incoming = URL(string: "https://example.com/")!
         let resolved = DeepLinkRouter.webURL(for: DeepLinkRouter.payload(from: incoming))

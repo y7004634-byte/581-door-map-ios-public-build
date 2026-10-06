@@ -6,7 +6,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    PRODUCT_BUNDLE_IDENTIFIER: com.door581.probe
+    PRODUCT_BUNDLE_IDENTIFIER: com.door581.appletest
     TARGETED_DEVICE_FAMILY: "1"
 targets:
   DoorMap581:
@@ -35,5 +35,5 @@ targets:
       - target: DoorMap581
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.door581.probe.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.door581.appletest.tests
         GENERATE_INFOPLIST_FILE: YES

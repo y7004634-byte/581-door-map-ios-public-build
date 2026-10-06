@@ -47,4 +47,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidEnterBackground(_ scene: UIScene) {
         rootController?.notifyLifecycle("background")
     }
+
+    func sceneDidDisconnect(_ scene: UIScene) {
+        rootController?.prepareForSceneDisconnect()
+        window?.rootViewController = nil
+        rootController = nil; window = nil
+    }
 }

@@ -3,7 +3,7 @@ import Foundation
 enum AppConfig {
     static let liveBaseURL = URL(string: "https://rider-door-map-canary.pages.dev/")!
     static let nativeBridgeName = "doorMapNative"
-    static let userAgentSuffix = "DoorMap581Native/0.2.1"
+    static let userAgentSuffix = "DoorMap581Native/0.3.2"
 
     enum ContentMode {
         case remoteLive
