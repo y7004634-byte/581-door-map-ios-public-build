@@ -1,0 +1,55 @@
+name: Door Map Native-Only Build9 Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      zero_cost_confirmed:
+        description: Existing public standard macOS runner only; no paid runner
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: door581-native-only-package
+  cancel-in-progress: false
+
+jobs:
+  package-native:
+    if: ${{ inputs.zero_cost_confirmed == true }}
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+      - name: Show runner
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+      - name: Install XcodeGen
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: command -v xcodegen || brew install xcodegen
+      - name: Build native-only unsigned IPA
+        shell: bash
+        run: |
+          chmod +x scripts/package-native-only.sh scripts/prepare-native-only-resources.sh
+          scripts/package-native-only.sh
+          grep -q '^status=PASS$' native-only-build/package.result.txt
+          grep -q '^webkit_linked=NO$' native-only-build/package.result.txt
+          grep -q '^web_runtime_assets=NO$' native-only-build/package.result.txt
+      - name: Upload native-only IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoorMap581-NativeOnly-build9-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
+          path: |
+            native-only-build/DoorMap581Native-v0.4.0-build9-unsigned.ipa
+            native-only-build/package.result.txt
+            native-only-build/package.log
