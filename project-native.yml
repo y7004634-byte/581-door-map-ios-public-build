@@ -20,6 +20,7 @@ targets:
           - Behavior
           - MiniMap
           - NativeData
+          - battery-stations-fallback.json
           - SceneDelegate.swift
           - AppleSearchBridge.swift
           - DoorMapViewController.swift
