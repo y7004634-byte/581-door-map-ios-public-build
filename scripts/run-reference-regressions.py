@@ -11,6 +11,9 @@ for target,root in roots.items():
         results.append({'target':target,'test':test.name,'exit':done.returncode,'output':done.stdout,'error':done.stderr})
         print(target,test.name,'PASS' if done.returncode==0 else 'FAIL')
         if done.returncode:print(done.stderr)
-name='NATIVE_REGRESSION_RESULTS.json' if '--native-only' in sys.argv else 'REFERENCE_REGRESSION_RESULTS.json'
-(repo/'docs'/name).write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
+native_only='--native-only' in sys.argv
+name='NATIVE_REGRESSION_RESULTS.json' if native_only else 'REFERENCE_REGRESSION_RESULTS.json'
+outdir=(repo/'cloud-build'/'native-port') if native_only else (repo/'docs')
+outdir.mkdir(parents=True,exist_ok=True)
+(outdir/name).write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
 sys.exit(0 if all(r['exit']==0 for r in results) else 1)
