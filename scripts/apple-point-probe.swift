@@ -14,8 +14,7 @@ func canonicalHouse(_ placemark: CLPlacemark) -> String {
         .replacingOccurrences(of: "\u{865F}", with: "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
     if let match = raw.range(of: #"\d+(?:[-之]\d+)?"#, options: .regularExpression) {
-        return String(raw[match])
-            .replacingOccurrences(of: "-", with: "之")
+        return String(raw[match]).replacingOccurrences(of: "-", with: "之")
     }
     return raw
 }
@@ -67,42 +66,50 @@ func emit(_ object: [String: Any], exitCode: Int32) -> Never {
 @main
 struct ApplePointProbe {
     static func main() async {
-        let center = CLLocationCoordinate2D(latitude: 24.143, longitude: 120.681)
+        let taichungCenter = CLLocation(latitude: 24.145, longitude: 120.6765)
         let region = MKCoordinateRegion(
-            center: center,
+            center: taichungCenter.coordinate,
             latitudinalMeters: 12_000,
             longitudinalMeters: 12_000
         )
 
         do {
-            let addressRequest = MKLocalSearch.Request()
-            addressRequest.naturalLanguageQuery = "臺中市中區中華路一段134號"
-            addressRequest.resultTypes = [.address, .pointOfInterest]
-            addressRequest.region = region
+            // Seed ONLY the test coordinate. Product point resolution below does
+            // not know/query the shop name; it receives just the chosen point.
+            let seedRequest = MKLocalSearch.Request()
+            seedRequest.naturalLanguageQuery = "吳家紅茶冰"
+            seedRequest.resultTypes = [.pointOfInterest, .address]
+            seedRequest.region = region
 
-            let addressResponse = try await MKLocalSearch(request: addressRequest).start()
-            let candidates = addressResponse.mapItems.map { jsonItem($0) }
-            guard let target = addressResponse.mapItems.first(where: {
-                canonicalHouse($0.placemark) == "134" && isZhonghuaSec1($0.placemark)
-            }) ?? addressResponse.mapItems.first(where: {
-                canonicalHouse($0.placemark) == "134"
+            let seedResponse = try await MKLocalSearch(request: seedRequest).start()
+            let seedCandidates = seedResponse.mapItems.map { jsonItem($0) }
+            guard let target = seedResponse.mapItems.first(where: {
+                let p = $0.placemark
+                let c = p.coordinate
+                let dist = CLLocation(latitude: c.latitude, longitude: c.longitude).distance(from: taichungCenter)
+                let n = norm($0.name ?? p.name ?? "")
+                return dist < 10_000
+                    && canonicalHouse(p) == "134"
+                    && isZhonghuaSec1(p)
+                    && (n.contains(norm("吳家紅茶冰")) || n.contains("wujia"))
             }) else {
                 emit([
                     "pass": false,
-                    "stage": "address-search",
-                    "message": "Apple address search did not return house 134",
-                    "addressCandidates": candidates
+                    "stage": "seed-search",
+                    "message": "Apple search did not expose a Taichung Zhonghua Sec 1 house 134 Wu Jia item",
+                    "seedCandidates": seedCandidates
                 ], exitCode: 1)
             }
 
             let coordinate = target.placemark.coordinate
             let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
 
+            // This is the actual product behavior being tested: coordinate only.
             let nearbyRequest = MKLocalPointsOfInterestRequest(center: coordinate, radius: 60)
             let nearbyResponse = try await MKLocalSearch(request: nearbyRequest).start()
             let nearbyItems = nearbyResponse.mapItems.map { jsonItem($0, origin: origin) }
             let sameHouseItems = nearbyResponse.mapItems.filter {
-                canonicalHouse($0.placemark) == "134"
+                canonicalHouse($0.placemark) == "134" && isZhonghuaSec1($0.placemark)
             }
             let sameHouseNames = sameHouseItems.map { $0.name ?? $0.placemark.name ?? "" }
 
@@ -121,11 +128,10 @@ struct ApplePointProbe {
             )
             let reverse = reverseMarks.first
 
-            let output: [String: Any] = [
+            emit([
                 "pass": hasWu && !wrongBankAt134,
                 "stage": "nearby-poi",
-                "addressQuery": "臺中市中區中華路一段134號",
-                "target": jsonItem(target),
+                "seed": jsonItem(target),
                 "reverseAddress": reverse.map(fullAddress) ?? "",
                 "reverseHouse": reverse.map(canonicalHouse) ?? "",
                 "nearbyCount": nearbyItems.count,
@@ -133,9 +139,7 @@ struct ApplePointProbe {
                 "sameHouseNames": sameHouseNames,
                 "sameHouseWu": hasWu,
                 "sameHouseWrongBank": wrongBankAt134
-            ]
-
-            emit(output, exitCode: hasWu && !wrongBankAt134 ? 0 : 2)
+            ], exitCode: hasWu && !wrongBankAt134 ? 0 : 2)
         } catch {
             emit([
                 "pass": false,
